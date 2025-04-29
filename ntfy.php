@@ -1,386 +1,295 @@
 <?php
 
-// Ensure this file is loaded within the WHMCS environment
+// Define the namespace EXACTLY as WHMCS seems to expect based on the directory structure
+namespace WHMCS\Module\Notification\ntfy; // Lowercase 'ntfy' matching the directory
+
+// Import necessary WHMCS classes and interfaces using their correct namespaces from the sample
+use WHMCS\Module\Contracts\NotificationModuleInterface;
+use WHMCS\Module\Notification\DescriptionTrait;
+use WHMCS\Notification\Contracts\NotificationInterface;
+
+// Make sure the file cannot be accessed directly
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
 }
 
-// Import necessary WHMCS classes (adjust namespaces based on your WHMCS version if needed)
-use WHMCS\Notification\Contracts\NotificationModuleInterface;
-use WHMCS\Notification\Domain\Notification;
-// Note: WHMCS might use different classes/namespaces for NotificationSetting, check docs
-// use WHMCS\Notification\Domain\NotificationSetting;
-use WHMCS\Config\Setting; // Used for logging function lookup (optional)
-use WHMCS\Exception\Module\InvalidConfiguration;
-// use WHMCS\Exception\HttpClient\HttpRequestException; // Could be used if WHMCS has its own HTTP client abstraction
-
 /**
  * NW ntfy Notification Module for WHMCS
  *
- * Sends WHMCS notification events to a specified ntfy.sh server and topic.
+ * Class name and namespace adjusted to match WHMCS autoloader expectations.
  */
-class NtfyNotification implements NotificationModuleInterface
+// Class name changed to lowercase 'ntfy' to match the expected class name from the error
+class ntfy implements NotificationModuleInterface
 {
+    // Use the trait provided by WHMCS for handling Display Name and Logo
+    use DescriptionTrait;
+
     /**
      * Module constructor.
-     * Currently no specific setup actions are needed here.
+     * Set the display name and logo file using the DescriptionTrait.
      */
     public function __construct()
     {
-        // Constructor body - intentionally empty for now
+        // DisplayName can still be user-friendly CamelCase
+        $this->setDisplayName('NW ntfy Notifications')
+             ->setLogoFileName('logo.png');
     }
 
     /**
-     * Provides metadata about the notification module.
-     * DisplayName, APIVersion, Logo requirements, and configuration fields.
+     * Defines the configuration fields required for the module. (Corresponds to settings())
      *
-     * @return array Metadata array describing the module.
+     * @return array Configuration fields array.
      */
-    public function getMetaData(): array
+    public function settings(): array
     {
-        return [
-            'DisplayName' => 'NW ntfy Notifications', // Updated as requested
-            'APIVersion' => '1.1',
-            'RequiresLogo' => true,
-            'LogoFileName' => 'logo.png',
-            'Configuration' => $this->getConfigurationFields(),
-        ];
-    }
-
-    /**
-     * Defines the configuration fields shown in the WHMCS admin area.
-     * Uses language strings defined in lang/english.php for user-friendliness.
-     *
-     * @return array An array defining the configuration fields.
-     */
-    public function getConfigurationFields(): array
-    {
-        global $_LANG; // Make language variables available
-
-        // Ensure LANG vars are loaded, provide fallbacks just in case
+        global $_LANG;
         $lang = $_LANG ?? [];
 
         return [
             'ntfyServerUrl' => [
                 'FriendlyName' => $lang['ntfyServerUrl_FriendlyName'] ?? 'ntfy Server URL',
                 'Type' => 'text',
-                'Description' => $lang['ntfyServerUrl_Description'] ?? 'The base URL of your ntfy server (e.g., https://ntfy.sh). Do NOT include the topic name.',
+                'Description' => $lang['ntfyServerUrl_Description'] ?? 'Base URL (e.g., https://ntfy.sh). No topic.',
                 'Required' => true,
             ],
             'ntfyTopic' => [
                 'FriendlyName' => $lang['ntfyTopic_FriendlyName'] ?? 'ntfy Topic Name',
                 'Type' => 'text',
-                'Description' => $lang['ntfyTopic_Description'] ?? 'The ntfy topic to publish notifications to (e.g., whmcs_alerts).',
+                'Description' => $lang['ntfyTopic_Description'] ?? 'Topic name (e.g., whmcs_alerts).',
                 'Required' => true,
             ],
             'ntfyPriority' => [
-                'FriendlyName' => $lang['ntfyPriority_FriendlyName'] ?? 'Default Message Priority',
+                'FriendlyName' => $lang['ntfyPriority_FriendlyName'] ?? 'Default Priority',
                 'Type' => 'dropdown',
                 'Options' => $lang['ntfyPriority_Options'] ?? '3,Default|1,Min|2,Low|4,High|5,Max',
                 'Default' => '3',
-                'Description' => $lang['ntfyPriority_Description'] ?? 'Default priority for notifications (1-min to 5-max).',
+                'Description' => $lang['ntfyPriority_Description'] ?? 'Default priority (1-min to 5-max).',
             ],
             'ntfyAuthMethod' => [
-                'FriendlyName' => $lang['ntfyAuthMethod_FriendlyName'] ?? 'Authentication Method',
+                'FriendlyName' => $lang['ntfyAuthMethod_FriendlyName'] ?? 'Authentication',
                 'Type' => 'dropdown',
                 'Options' => $lang['ntfyAuthMethod_Options'] ?? 'None,None|Token,Access Token|Basic,Username/Password',
                 'Default' => 'None',
-                'Description' => $lang['ntfyAuthMethod_Description'] ?? 'Select the authentication method required by your ntfy topic/server.',
+                'Description' => $lang['ntfyAuthMethod_Description'] ?? 'Authentication method.',
             ],
             'ntfyAuthToken' => [
                 'FriendlyName' => $lang['ntfyAuthToken_FriendlyName'] ?? 'Access Token',
-                'Type' => 'password', // Use password type to obscure input
-                'Description' => $lang['ntfyAuthToken_Description'] ?? 'Your ntfy access token (if using Token authentication).',
+                'Type' => 'password',
+                'Description' => $lang['ntfyAuthToken_Description'] ?? 'Token (if using Token auth).',
             ],
             'ntfyUsername' => [
                 'FriendlyName' => $lang['ntfyUsername_FriendlyName'] ?? 'Username',
                 'Type' => 'text',
-                'Description' => $lang['ntfyUsername_Description'] ?? 'Username for Basic Authentication (if used).',
+                'Description' => $lang['ntfyUsername_Description'] ?? 'Username (if using Basic auth).',
             ],
             'ntfyPassword' => [
                 'FriendlyName' => $lang['ntfyPassword_FriendlyName'] ?? 'Password',
                 'Type' => 'password',
-                'Description' => $lang['ntfyPassword_Description'] ?? 'Password for Basic Authentication (if used).',
+                'Description' => $lang['ntfyPassword_Description'] ?? 'Password (if using Basic auth).',
             ],
             'ntfyDefaultTags' => [
                 'FriendlyName' => $lang['ntfyDefaultTags_FriendlyName'] ?? 'Default Tags',
                 'Type' => 'text',
-                'Description' => $lang['ntfyDefaultTags_Description'] ?? 'Optional: Comma-separated default tags (e.g., whmcs,billing).',
+                'Description' => $lang['ntfyDefaultTags_Description'] ?? 'Optional comma-separated tags.',
             ],
         ];
     }
 
     /**
-     * Defines settings specific to an individual notification rule.
-     * Currently, no rule-specific settings are implemented for ntfy.
-     * All configuration is managed at the module level.
-     *
-     * @param Notification|null $notification Contextual notification object (unused here).
-     * @return array An empty array as no rule-specific settings are defined.
-     */
-    public function getRuleSettings(?Notification $notification = null): array
-    {
-        // Return an empty array to indicate no specific settings for individual rules.
-        // All configuration (server, topic, auth, defaults) is global for this provider.
-        return [];
-    }
-
-
-    /**
-     * Tests the connection to the ntfy server using the provided settings.
-     * Triggered by the "Test Connection" button in the WHMCS admin area.
+     * Validate settings and test the connection. (Corresponds to testConnection())
      *
      * @param array $settings Current module configuration settings.
-     * @return array Result array with 'success' (bool) or 'error' (string) key.
+     * @throws \Exception On connection failure or validation error.
      */
-    public function testConnection(array $settings): array
+    public function testConnection($settings): void
     {
         global $_LANG;
         $lang = $_LANG ?? [];
         $testTitle = "WHMCS Test Connection";
         $testMessage = "This is a test notification from your WHMCS ntfy module configuration.";
-        // Use configured default priority for the test, falling back to '3'
         $testPriority = $settings['ntfyPriority'] ?? '3';
         $testTags = $settings['ntfyDefaultTags'] ?? '';
-        $testUrl = ''; // No specific URL context for a test connection
+        $testUrl = '';
 
-        try {
-            $result = $this->sendToNtfy(
-                $settings,
-                $testTitle,
-                $testMessage,
-                (string) $testPriority, // Ensure priority is string for header
-                (string) $testTags,
-                $testUrl
-            );
+        $result = $this->sendToNtfy(
+            $settings,
+            $testTitle,
+            $testMessage,
+            (string) $testPriority,
+            (string) $testTags,
+            $testUrl
+        );
 
-            if ($result['success']) {
-                // Connection test successful
-                return ['success' => true];
-            } else {
-                // Failed to send, provide error message
-                $errorMessage = ($lang['ntfy_test_connection_error'] ?? 'Failed to send test notification. Error: ') . $result['error'];
-                return ['error' => $errorMessage];
-            }
-        } catch (\Exception $e) {
-            // Catch any unexpected exceptions during the test
-            $this->logActivity("ntfy Test Connection Exception: " . $e->getMessage());
-            $errorMessage = ($lang['ntfy_test_connection_error'] ?? 'Failed to send test notification. Error: ') . $e->getMessage();
-            return ['error' => $errorMessage];
+        if (!$result['success']) {
+            $errorMessage = ($lang['ntfy_test_connection_error'] ?? 'Failed to send test notification. Error: ') . $result['error'];
+            throw new \Exception($errorMessage);
         }
     }
 
     /**
-     * Sends the notification based on a triggered WHMCS event rule.
-     * This method orchestrates gathering details and calling the sendToNtfy helper.
+     * Defines settings specific to an individual notification rule. (Corresponds to notificationSettings())
      *
-     * @param Notification $notification The notification object (contains title, message, URL, etc.).
-     * @param array $moduleSettings The global module configuration saved by the admin.
-     * @param array $ruleSettings Settings specific to the rule (empty in this implementation).
-     *
-     * @throws \Exception Can re-throw exceptions from sendToNtfy if needed, but logging is often preferred.
+     * @return array An empty array as no rule-specific settings are used.
      */
-    public function sendNotification(Notification $notification, array $moduleSettings, array $ruleSettings): void // Return type is void as per typical interface
+    public function notificationSettings(): array
     {
-        // Extract core details from the notification object
+        return [];
+    }
+
+    /**
+     * Provides options for 'dynamic' fields defined in notificationSettings(). (Corresponds to getDynamicField())
+     *
+     * @param string $fieldName Notification setting field name.
+     * @param array $settings Settings for the module.
+     * @return array Empty array as no dynamic fields are used.
+     */
+    public function getDynamicField($fieldName, $settings): array
+    {
+        return [];
+    }
+
+    /**
+     * Delivers the notification. (Corresponds to sendNotification())
+     *
+     * @param NotificationInterface $notification The notification object.
+     * @param array $moduleSettings The global module configuration.
+     * @param array $notificationSettings Configured settings from the rule (empty here).
+     *
+     * @throws \Exception On failure to send the notification.
+     */
+    public function sendNotification(NotificationInterface $notification, $moduleSettings, $notificationSettings): void
+    {
         $title = $notification->getTitle();
         $message = $notification->getMessage();
-        // Attempt to get a relevant URL, might be null
         $url = $notification->getUrl();
-
-        // Determine priority: Module default setting takes precedence, fallback to '3' (ntfy default)
-        // $ruleSettings is ignored here as getRuleSettings returns empty
         $priority = $moduleSettings['ntfyPriority'] ?? '3';
-        if (empty($priority)) { // Ensure we don't send an empty priority header
-             $priority = '3';
-        }
-
-        // Get default tags from module settings
-        // $ruleSettings is ignored here
+        if (empty($priority)) { $priority = '3'; }
         $tags = $moduleSettings['ntfyDefaultTags'] ?? '';
 
-        try {
-            // Call the helper function to perform the actual HTTP request
-            $result = $this->sendToNtfy(
-                $moduleSettings, // Pass global settings for connection details
-                $title,
-                $message,
-                (string) $priority, // Ensure type consistency
-                (string) $tags,
-                $url // Pass the URL if available
-            );
+        $result = $this->sendToNtfy(
+            $moduleSettings,
+            $title,
+            $message,
+            (string) $priority,
+            (string) $tags,
+            $url
+        );
 
-            // Log the outcome
-            if ($result['success']) {
-                 $this->logActivity("Successfully sent ntfy notification: '{$title}'");
-            } else {
-                // Log the error if sending failed, allowing WHMCS to continue
-                $this->logActivity("Failed to send ntfy notification '{$title}'. Error: {$result['error']}");
-                // Depending on desired behavior, you might throw an exception here,
-                // but this could halt processing of other notifications. Logging is safer.
-                // throw new \Exception("ntfy Send Error: " . $result['error']);
-            }
-
-        } catch (\Exception $e) {
-            // Log any unexpected exceptions during the sending process
-            $this->logActivity("Exception during ntfy sendNotification for '{$title}': " . $e->getMessage());
-            // Potentially re-throw if this failure should be considered critical
-            // throw $e;
+        if (!$result['success']) {
+            $logMessage = "Failed to send ntfy notification '{$title}'. Error: {$result['error']}";
+            $this->logActivity($logMessage);
+            // Throw exception to signal failure to WHMCS
+            throw new \Exception($logMessage);
+        } else {
+            $this->logActivity("Successfully sent ntfy notification: '{$title}'");
         }
     }
 
+
+    // --- Helper Functions (Internal logic) ---
+
     /**
-     * Performs the actual HTTP POST request to the ntfy server using cURL.
+     * Helper: Performs the HTTP POST request to the ntfy server.
      *
-     * @param array $settings Module configuration (URL, topic, auth details).
+     * @param array $settings Module configuration.
      * @param string $title Notification title.
      * @param string $message Notification message body.
-     * @param string $priority Notification priority ('1' through '5').
-     * @param string $tags Comma-separated string of tags.
-     * @param string|null $clickUrl Optional URL for the 'Click' action header.
+     * @param string $priority Notification priority ('1'-'5').
+     * @param string $tags Comma-separated tags string.
+     * @param string|null $clickUrl Optional URL for 'Click' action.
      *
-     * @return array Associative array: ['success' => bool, 'error' => ?string].
+     * @return array ['success' => bool, 'error' => ?string].
      */
     protected function sendToNtfy(array $settings, string $title, string $message, string $priority, string $tags, ?string $clickUrl): array
     {
         global $_LANG;
         $lang = $_LANG ?? [];
 
-        // Validate essential settings
-        $serverUrl = rtrim($settings['ntfyServerUrl'] ?? '', '/'); // Clean trailing slash
+        $serverUrl = rtrim($settings['ntfyServerUrl'] ?? '', '/');
         $topic = $settings['ntfyTopic'] ?? '';
 
         if (empty($serverUrl) || empty($topic)) {
-            return ['success' => false, 'error' => 'ntfy Server URL or Topic is not configured.'];
+            return ['success' => false, 'error' => ($lang['ntfy_config_error'] ?? 'ntfy Server URL or Topic is not configured.')];
         }
 
-        // Construct the full endpoint URL
         $fullUrl = $serverUrl . '/' . $topic;
-
-        // --- Prepare cURL Request ---
         $ch = curl_init();
 
-        // Basic options
         curl_setopt($ch, CURLOPT_URL, $fullUrl);
         curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $message); // Send the message as the raw request body
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $message);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 15); // Connection/execution timeout in seconds
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5); // Connection timeout
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); // Standard security practice
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);   // Verify hostname matches certificate
+        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
 
-        // Prepare HTTP Headers
         $headers = [
-            // ntfy primarily uses headers for metadata when the body is plain text
-            'User-Agent: WHMCS ntfy Notification Module', // Identify the client
-            'Title: ' . $this->encodeHeaderString($title), // Use helper to sanitize title
-            // 'Content-Type: text/plain', // Explicitly set if needed, often inferred by ntfy
+            'User-Agent: WHMCS NW ntfy Module v1.0',
+            'Title: ' . $this->encodeHeaderString($title),
         ];
 
-        // Add priority header if not default (ntfy assumes '3' if omitted)
-        if ($priority !== '3' && $priority !== '') {
-             $headers[] = 'Priority: ' . $priority;
-        }
-        // Add tags header if tags are provided
-        if (!empty($tags)) {
-            $headers[] = 'Tags: ' . $this->encodeHeaderString($tags); // Sanitize tags
-        }
-        // Add click URL header if provided
-        if (!empty($clickUrl)) {
-            $headers[] = 'Click: ' . $clickUrl; // Assume URL is safe, no extra encoding needed here
-        }
+        if ($priority !== '3' && $priority !== '') $headers[] = 'Priority: ' . $priority;
+        if (!empty($tags)) $headers[] = 'Tags: ' . $this->encodeHeaderString($tags);
+        if (!empty($clickUrl)) $headers[] = 'Click: ' . $clickUrl;
 
-        // Handle Authentication
         $authMethod = $settings['ntfyAuthMethod'] ?? 'None';
-
         if ($authMethod === 'Token') {
             $token = $settings['ntfyAuthToken'] ?? '';
-            if (!empty($token)) {
-                $headers[] = 'Authorization: Bearer ' . $token;
-            } else {
-                 $this->logActivity("ntfy Warning: Auth method is Token, but no token provided in settings.");
-            }
+            if (!empty($token)) $headers[] = 'Authorization: Bearer ' . $token;
         } elseif ($authMethod === 'Basic') {
             $username = $settings['ntfyUsername'] ?? '';
-            // WHMCS should handle secure retrieval of password fields
             $password = $settings['ntfyPassword'] ?? '';
-            if (!empty($username)) { // Password can technically be empty in basic auth
-                 $headers[] = 'Authorization: Basic ' . base64_encode($username . ':' . $password);
-            } else {
-                 $this->logActivity("ntfy Warning: Auth method is Basic, but Username is missing in settings.");
-            }
+            if (!empty($username)) $headers[] = 'Authorization: Basic ' . base64_encode($username . ':' . $password);
         }
 
-        // Apply headers to cURL request
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 
-        // Execute cURL request
         $responseBody = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $curlErrorNum = curl_errno($ch);
         $curlErrorMsg = curl_error($ch);
         curl_close($ch);
-        // --- End cURL Request ---
 
-
-        // --- Process Response ---
         if ($curlErrorNum !== CURLE_OK) {
-            // cURL library error occurred (network issue, DNS, SSL, etc.)
             $errorMsg = ($lang['ntfy_curl_error'] ?? 'Curl Error: ') . $curlErrorNum . ' - ' . $curlErrorMsg;
             return ['success' => false, 'error' => $errorMsg];
         }
 
-        // Check HTTP status code for success (2xx range indicates success for ntfy POST)
         if ($httpCode >= 200 && $httpCode < 300) {
-             // Successful POST to ntfy
              return ['success' => true, 'error' => null];
         } else {
-            // ntfy server returned an error (4xx, 5xx)
             $errorMsg = ($lang['ntfy_http_error'] ?? 'ntfy Server HTTP Error: Status ') . $httpCode;
-            // Log server response for debugging, truncate long responses
             $this->logActivity("ntfy HTTP Error {$httpCode} for URL {$fullUrl}. Response: " . substr((string)$responseBody, 0, 500));
-            return ['success' => false, 'error' => $errorMsg];
+            return ['success' => false, 'error' => $errorMsg . " (see module log)"];
         }
     }
 
     /**
-     * Basic sanitization for strings intended for HTTP headers.
-     * Primarily removes newline characters which can break headers or cause injection.
-     *
-     * @param string $value The raw string.
-     * @return string The sanitized string safe for header use.
+     * Helper: Basic sanitization for HTTP header strings.
+     * @param string $value Raw string.
+     * @return string Sanitized string.
      */
     protected function encodeHeaderString(string $value): string
     {
-        // Replace CR and LF characters with empty string
         return str_replace(["\r", "\n"], '', $value);
-        // For more complex international character support in headers, RFC 2047 encoding might be needed,
-        // but ntfy seems robust with UTF-8 directly in headers. This basic sanitization is crucial.
     }
 
     /**
-     * Logs activity using WHMCS's built-in module logging system.
-     * Sensitive data specified in the last parameter will be automatically masked.
-     *
-     * @param string $message The primary log message.
-     * @param array $data Optional additional data array (e.g., request details).
+     * Helper: Logs activity using WHMCS's logModuleCall.
+     * @param string $message Log message.
+     * @param array $data Optional data array.
      */
     protected function logActivity(string $message, array $data = []): void
     {
         try {
-            // Use WHMCS's logModuleCall function for standardized logging
             logModuleCall(
-                'ntfy', // Module directory name (must match)
-                debug_backtrace()[1]['function'] ?? __FUNCTION__, // Attempt to get the calling function name
-                $message, // Log message (e.g., request string or description)
-                $data,    // Request/context data (can be empty)
-                null,     // Response data (can be null if not applicable)
-                // Array of keys whose values should be masked in the log (matches config field names)
-                ['ntfyAuthToken', 'ntfyPassword']
+                'ntfy', // Module directory name - MUST BE LOWERCASE 'ntfy'
+                debug_backtrace()[1]['function'] ?? __FUNCTION__,
+                $message, $data, null,
+                ['ntfyAuthToken', 'ntfyPassword'] // Mask sensitive fields
             );
         } catch (\Exception $e) {
-            // Fallback logging if logModuleCall fails for some reason
             error_log("WHMCS ntfy Module - logActivity failed: " . $e->getMessage() . " | Original message: " . $message);
         }
     }
